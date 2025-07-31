@@ -1,0 +1,303 @@
+@page "/CreateUserPage"
+@using Core
+@using EksamensProjekt.Service
+@inject NavigationManager nav
+@inject ILogin LoginService
+@inject IUser mService
+@inject ILocation mLocationService
+
+<h1>Opret bruger</h1>
+
+@if (isLoading)
+{
+    <p>Indlæser...</p>
+}
+else if (string.IsNullOrEmpty(currentUser?.Role) || currentUser.Role != "Admin")
+{
+    <p>Adgang nægtet</p>
+}
+else
+{
+    <EditForm EditContext="@editContext" OnValidSubmit="@HandleSubmit" class="row p-3">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="col-md-12 mb-3">
+            <label for="Name">Navn</label>
+            <InputText id="Name" @bind-Value="user.Name" class="form-control" />
+            <ValidationMessage For="@(() => user.Name)" />
+        </div>
+
+        <div class="col-md-12 mb-3">
+            <label for="Username">Brugernavn</label>
+            <InputText id="Username" @bind-Value="user.UserName" class="form-control" />
+            <ValidationMessage For="@(() => user.UserName)" />
+        </div>
+
+        <div class="col-md-12 mb-3">
+            <label for="Password">Adgangskode</label>
+            <InputText id="Password" @bind-Value="user.Password" class="form-control" />
+            <ValidationMessage For="@(() => user.Password)" />
+        </div>
+
+        <div class="col-md-12 mb-3">
+            <label for="ProfilePicture">Profilbillede</label>
+            <InputText id="ProfilePicture" @bind-Value="user.ProfilePicture" class="form-control" />
+            <ValidationMessage For="@(() => user.ProfilePicture)" />
+        </div>
+
+        <div class="col-md-6 mb-3">
+            <label for="Location">Lokation</label>
+            <div class="location-input-group">
+                <InputSelect id="Location" @bind-Value="SelectedLocationId" class="form-control">
+                    <option value="">-- Vælg en lokation --</option>
+                    @foreach (var location in locations)
+                    {
+                        <option value="@location._id">@location.Name</option>
+                    }
+                </InputSelect>
+                <button type="button" class="btn-add-location" @onclick="ShowAddLocationDialog" title="Tilføj ny lokation">
+                    <i class="bi bi-plus-circle"></i> +
+                </button>
+            </div>
+            <ValidationMessage For="@(() => user.Location)" />
+        </div>
+
+        <div class="col-md-6 mb-3">
+            <label for="Role">Rolle</label>
+            <InputSelect id="Role" @bind-Value="user.Role" class="form-control">
+                <option value="">-- Vælg en rolle --</option>
+                @foreach (var role in roles)
+                {
+                    <option value="@role">@role</option>
+                }
+            </InputSelect>
+            <ValidationMessage For="@(() => user.Role)" />
+        </div>
+
+        @if (user.Role == "Elev")
+        {
+            <div class="col-md-12 mb-3">
+                <label for="StartTime">Start tidspunkt</label>
+                <InputDate id="StartTime" @bind-Value="user.DateOfStart" class="form-control" />
+                <ValidationMessage For="@(() => user.DateOfStart)" />
+            </div>
+            <div class="col-md-12 mb-3">
+                <label for="EndTime">Slut tidspunkt</label>
+                <InputDate id="EndTime" @bind-Value="user.DateOfEnd" class="form-control" />
+                <ValidationMessage For="@(() => user.DateOfEnd)" />
+            </div>
+            <div class="col-md-6 mb-3">
+                <label for="Education">Forløb</label>
+                <InputSelect id="Education" @bind-Value="user.Education" class="form-control">
+                    <option value="">-- Vælg et forløb --</option>
+                    @foreach (var education in educations)
+                    {
+                        <option value="@education">@education</option>
+                    }
+                </InputSelect>
+                <ValidationMessage For="@(() => user.Education)" />
+                @if (educationError)
+                {
+                    <div class="text-danger"> Forløb er påkrævet for elev</div>
+                }
+            </div>
+            
+            <div class="col-md-6 mb-3">
+                <label for="Praktikperiode">Praktikperiode</label>
+                <InputSelect id="Praktikperiode" @bind-Value="user.Internshipyear" class="form-control">
+                    <option value="">-- Vælg en praktikperiode --</option>
+                    @foreach (var internshipyear in internshipyears)
+                    {
+                        <option value="@internshipyear">@internshipyear</option>
+                    }
+                </InputSelect>
+                <ValidationMessage For="@(() => user.Internshipyear)" />
+                @if (educationError)
+                {
+                    <div class="text-danger"> Praktikperiode er påkrævet for elev</div>
+                }
+            </div>
+        }
+
+        <div class="col-12 mb-3">
+            <button type="submit" class="btn btn-primary">Opret Bruger</button>
+        </div>
+
+        <button type="button" class="btn btn-secondary" @onclick="NavigateAllStudentPage">Fortryd ændringer</button>
+    </EditForm>
+}
+
+@if (showAddLocationModal)
+{
+    <div class="custom-modal-backdrop">
+        <div class="custom-modal">
+            <div class="modal-header-custom">
+                <h5 class="modal-title-custom">Tilføj ny lokation</h5>
+                <button type="button" class="modal-close-btn" @onclick="CloseAddLocationDialog">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body-custom">
+                <div class="form-group">
+                    <label for="newLocation" class="modal-label">Lokationsnavn</label>
+                    <input type="text" class="form-control modal-input" id="newLocation" @bind="newLocationName"
+                           @onkeypress="@(async (e) => { if (e.Key == "Enter") await AddNewLocation(); })"
+                           placeholder="Indtast ny lokation..." />
+                    @if (!string.IsNullOrEmpty(locationErrorMessage))
+                    {
+                        <div class="error-message">
+                            <i class="bi bi-exclamation-circle"></i> @locationErrorMessage
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer-custom">
+                <button type="button" class="btn btn-secondary modal-btn" @onclick="CloseAddLocationDialog">Annuller</button>
+                <button type="button" class="btn btn-primary modal-btn" @onclick="AddNewLocation" disabled="@string.IsNullOrWhiteSpace(newLocationName)">Tilføj</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    
+    // Den bruger der aktuelt bliver oprettet i formularen
+    private User user = new() { Role = "", };
+
+    // Roller som brugeren kan vælge mellem i formularen
+    private string[] roles = { "Elev", "Køkkenchef", "Admin", "Kok" };
+
+    // Uddannelsestyper brugeren kan vælge i formularen
+    private string[] educations = { "EUX", "EUD", "EUV", "FGU", "Mesterlære" };
+
+    // Liste med alle lokationer, bruges i vores dropdown menu
+    private List<Location> locations = new();
+
+    // Bruges til validering af formularen
+    private EditContext editContext = default!;
+
+    // Den bruger som er logget ind – Adgang er kun godkendt, hvis brugeren har rollen "Admin"
+    private User? currentUser;
+
+    // Viser om siden stadig er ved at loade data
+    private bool isLoading = true;
+
+    // Angiver om der er fejl ved valg af uddannelse
+    private bool educationError = false;
+
+    // Styrer om modal-vinduet til at tilføje ny lokation er åbent
+    private bool showAddLocationModal = false;
+
+    // Navnet på den nye lokation, som indtastes i modal-vinduet
+    private string newLocationName = string.Empty;
+
+    // Fejlbesked hvis oprettelse af ny lokation fejler
+    private string locationErrorMessage = string.Empty;
+
+    // Mulige praktikår som kan vælges i formularen
+    private List<string> internshipyears = new() { "1", "2", "3", "4" };
+
+    // Property til binding af lokationens ID i UI’et.
+    // Getter: returnerer det valgte lokations-ID eller 0, hvis ingen er valgt.
+    // Setter: finder og sætter den valgte lokation ud fra ID.
+    private int SelectedLocationId
+    {
+        get => user.Location?._id ?? 0;
+        set => user.Location = locations.FirstOrDefault(l => l._id == value);
+    }
+
+    // Kører ved initialisering af komponenten.
+    // Hvis brugeren er Admin, hentes alle lokationer, sorteres alfabetisk,
+    // og et nyt EditContext oprettes til formularvalidering.
+    protected override async Task OnInitializedAsync()
+    {
+        currentUser = await LoginService.GetUserLoggedIn();
+        if (currentUser?.Role == "Admin")
+        {
+            locations = await mLocationService.GetAllLocations();
+            locations = locations.OrderBy(l => l.Name).ToList();
+            editContext = new EditContext(user);
+        }
+        isLoading = false;
+    }
+
+    // Håndterer formularens indsendelse.
+    // Validerer at "Elev"-brugere har valgt en uddannelse.
+    // Hvis formularen er gyldig, gemmes brugeren og man navigerer videre.
+    private async Task HandleSubmit()
+    {
+        educationError = false;
+        
+        if (user.Role == "Elev" && string.IsNullOrEmpty(user.Education))
+        {
+            educationError = true;
+            return;
+        }
+
+        if (editContext.Validate())
+        {
+            await mService.AddUser(user);
+            nav.NavigateTo(user.Role == "Elev" ? "/AllStudentsPage" : "/EmployeePage");
+        }
+        else
+        {
+            Console.WriteLine("Formularen er ikke valid.");
+        }
+    }
+
+    //Navigerer til siden AllStudentsPage
+    private void NavigateAllStudentPage()
+    {
+        nav.NavigateTo("/AllStudentsPage");
+    }
+
+    //Viser modalvinduet til at oprette en ny lokation
+    private void ShowAddLocationDialog()
+    {
+        showAddLocationModal = true;
+        newLocationName = string.Empty;
+        locationErrorMessage = string.Empty;
+    }
+
+    //Lukker modalvinduet, når lokation bliver oprettet 
+    private void CloseAddLocationDialog()
+    {
+        showAddLocationModal = false;
+        newLocationName = string.Empty;
+        locationErrorMessage = string.Empty;
+    }
+
+    //Tilføjer en ny lokation, hvis feltet ikke er tom eller ikke findes i forvejen 
+    //Viser fejlbeskeder og opdaterer listen med lokationer
+    private async Task AddNewLocation()
+    {
+        if (string.IsNullOrWhiteSpace(newLocationName))
+        {
+            locationErrorMessage = "Indtast venligst et lokationsnavn";
+            return;
+        }
+
+        if (locations.Any(l => l.Name.Equals(newLocationName, StringComparison.OrdinalIgnoreCase)))
+        {
+            locationErrorMessage = "Denne lokation eksisterer allerede";
+            return;
+        }
+
+        var newLocation = new Location { Name = newLocationName };
+
+        try
+        {
+            var addedLocation = await mLocationService.AddLocation(newLocation);
+            locations.Add(addedLocation);
+            locations = locations.OrderBy(l => l.Name).ToList();
+            user.Location = addedLocation;
+            CloseAddLocationDialog();
+        }
+        catch
+        {
+            locationErrorMessage = "Fejl under tilføjelse af lokation";
+        }
+
+    }
+}

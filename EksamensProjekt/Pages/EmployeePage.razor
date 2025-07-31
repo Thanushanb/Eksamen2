@@ -1,0 +1,54 @@
+@page "/EmployeePage"
+@using Core
+@using EksamensProjekt.Service
+@inject ILogin LoginService
+@inject NavigationManager nav
+@inject IUser mService
+
+<h3>Oversigt over Medarbejder</h3>
+@foreach (var user in users)
+{
+    <div class="employee-card" @onclick="@(() => nav.NavigateTo($"/MyProfilePage/{user._id}"))">
+        <div class="employee-info">
+            <img src=@user.ProfilePicture alt="">
+            <h2>@user.Name</h2>
+            <span>Rolle: @user.Role </span>
+            <span>Lokation: @user.Location?.Name</span>
+        </div>
+    </div>
+}
+
+@code {
+    
+    // Brugeren, som er logget ind. Bruges til at bestemme adgangsniveau.
+    private User? currentUser;
+
+    // Liste over alle brugere som ikke er elever. Hentes fra backend.
+    private User[]? users = new User[0];
+
+    // Kører når komponenten initialiseres.
+    // Logger brugeren ind, og hvis brugeren er elev bliver den sendt til forsiden
+    // Hvis adgang er godkendt, hentes alle brugere.
+    protected override async Task OnInitializedAsync()
+    {
+        currentUser = await LoginService.GetUserLoggedIn();
+
+        if (currentUser == null ||
+            (currentUser.Role != "Admin" && currentUser.Role != "Køkkenchef" && currentUser.Role != "Kok"))
+        {
+            nav.NavigateTo("/");
+            return;
+        }
+
+        await LoadAll();
+    }
+
+    // Henter alle brugere fra backend og filtrerer listen,
+    // så kun brugere med andre roller end "Elev" inkluderes.
+    private async Task LoadAll()
+    {
+        users = await mService.GetAll();
+        users = users.Where(e => e.Role != "Elev").ToArray();
+    }
+
+}

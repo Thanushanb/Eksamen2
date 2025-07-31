@@ -1,0 +1,218 @@
+@page "/AllStudentsPage"
+@using Core
+@using Core.Filter
+@using EksamensProjekt.Service
+@using EksamensProjekt.Components
+@inject ILogin LoginService
+@inject NavigationManager nav
+@inject IUser mService
+@inject IExport Export
+@inject ILocation LocationService
+
+
+<h3>OVERSIGT OVER ELEVER</h3>
+
+<div class="filter-section">
+    <div class="filter-group">
+        <label for="nameSearch">Søg navn:</label>
+        <input type="text" id="nameSearch" placeholder="Indtast navn..."
+               @bind="filter.Name" />
+    </div>
+
+    <div class="filter-group-row">
+        <div class="filter-group">
+            <label for="locationFilter">Lokation:</label>
+            <select class="locationFilter" @bind="filter.LocationName">
+                <option value="">Alle</option>
+                @foreach (var location in locations)
+                {
+                    <option value="@location.Name">@location.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="internshipFilter">Praktikperiode:</label>
+            <select id="internshipFilter" @bind="filter.Internshipyear">
+                <option value="">Alle</option>
+                @foreach (var internshipyear in internshipyears)
+                {
+                    <option value="@internshipyear">@internshipyear</option>
+                }
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="educationFilter">Forløb:</label>
+            <select id="educationFilter" @bind="filter.Education">
+                <option value="">Alle</option>
+                <option value="EUX">EUX</option>
+                <option value="EUD">EUD</option>
+                <option value="EUV">EUV</option>
+                <option value="FGU">FGU</option>
+                <option value="Mesterlære">Mesterlære</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="isActiveFilter">Status:</label>
+            <select id="isActiveFilter" @bind="isActiveString">
+                <option value="true">Aktive</option>
+                <option value="">Alle</option>
+                <option value="false">Inaktive</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="filter-buttons">
+        <button class="button-gold" @onclick="SearchWithFilter">Søg</button>
+        <button class="button-gold" @onclick="ClearFilter">Nulstil filter</button>
+        <button class="button-gold" @onclick="ExportToExcel">Export</button>
+    </div>
+</div>
+
+@if (users is null || users.Length == 0)
+{
+    <p>Ingen elever fundet.</p>
+}
+else
+{
+    @foreach (var user in users)
+    {
+        <div class="student-card" @onclick="@(() => nav.NavigateTo($"/StudentplanPage/{user._id}"))">
+            <div class="student-info">
+                <img src="@user.ProfilePicture" alt="Profilbillede" />
+                <h2>@user.Name</h2>
+                <span>Rolle: @user.Role</span>
+                <span>Lokation: @user.Location?.Name</span>
+                <span>Praktikperiode: @user.Internshipyear</span>
+                <span>Forløb: @user.Education</span>
+                <div class="status-label @(user.IsActive ? "active" : "inactive")">
+                    @(user.IsActive ? "Aktiv" : "Inaktiv")
+                    </div>
+            </div>
+            <div class="status-bar-container">
+                <StatusBarComponent UserName="@user.Name" Goals="@GetUserGoals(user)" />
+            </div>
+        </div>
+    }
+}
+
+@code {
+    
+    // Den aktuelt loggede bruger (bruges til at bestemme rettigheder og visning)
+    private User? currentUser;
+
+    // Liste over alle brugere, som er hentet fra backend
+    private User[]? users = Array.Empty<User>();
+
+    // Filterobjekt, som styrer visning/søgning af brugere i UI'et
+    private UserFilter filter = new();
+
+    // Gemmer om brugeren er aktiv som en string (f.eks. "true" eller "false" – bruges til binding)
+    private string isActiveString = "true";
+
+    // Liste over alle lokationer (hentes fra backend og bruges i vores dropdowns)
+    private List<Location> locations = new();
+
+    // Liste over praktikår, som vises som valgmuligheder i UI'et (1. år, 2. år, ...)
+    private List<string> internshipyears = new() { "1", "2", "3", "4" };
+    
+    
+    // Kaldes automatisk ved initialisering af komponenten.
+    // Logger brugeren ind og tjekker rolle. Loader lokationer og brugere.
+    protected override async Task OnInitializedAsync()
+    {
+        currentUser = await LoginService.GetUserLoggedIn();
+
+        if (currentUser == null ||
+            (currentUser.Role != "Admin" && currentUser.Role != "Køkkenchef" && currentUser.Role != "Kok"))
+        {
+            nav.NavigateTo("/");
+            return;
+        }
+
+        isActiveString = "true";   
+        filter.IsActive = true;
+        
+        // Load locations fra database
+        await LoadLocations();
+        
+        await LoadAll();
+    }
+
+    // Henter alle lokationer fra backend og gemmer dem i listen "locations".
+    // Hvis der opstår fejl, logges fejlen, og listen sættes til tom.
+    private async Task LoadLocations()
+    {
+        try
+        {
+            locations = await LocationService.GetAllLocations();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fejl ved indlæsning af locations: {ex.Message}");
+            locations = new List<Location>(); // Fallback til tom liste
+        }
+    }
+
+    // Henter alle aktive brugere med rollen "Elev" fra backend og gemmer dem i "users".
+    private async Task LoadAll()
+    {
+        var allUsers = await mService.GetAll();
+        users = allUsers
+            .Where(e => e.Role == "Elev")
+            .Where(e => e.IsActive == true)
+            .ToArray();
+    }
+    
+    // Anvender det aktuelle filter til at hente brugere fra backend.
+    // Filtrerer yderligere, så kun brugere med rollen "Elev" vises.
+    private async Task SearchWithFilter()
+    {
+        filter.IsActive = isActiveString switch
+        {
+            "true" => true,
+            "false" => false,
+            _ => null
+        };
+        
+        users = (await mService.GetFilteredUsers(filter))
+            .Where(u => u.Role == "Elev")
+            .ToArray();
+    }
+
+    // Nulstiller filter og genindlæser alle brugere.
+    private async Task ClearFilter()
+    {
+        filter = new UserFilter(); // nulstil filter
+        isActiveString = "true";
+        await LoadAll(); // load alle brugere igen
+    }
+
+    // Returnerer alle mål (goals) for en given bruger baseret på deres praktikperioder.
+    // Hvis brugeren ikke har nogen praktikperiode, returneres en tom liste.
+    private Goal[] GetUserGoals(User user)
+    {
+        if (user.Studentplan?.Internship == null)
+            return Array.Empty<Goal>();
+
+        return user.Studentplan.Internship
+            .Where(i => i.Goal != null)
+            .SelectMany(i => i.Goal)
+            .ToArray();
+    }
+    
+    // Eksporterer listen af brugere til en Excel-fil ved hjælp af hjælpeklasse.
+    // Hvis eksporten fejler, logges fejlen til konsollen.
+    private async Task ExportToExcel()
+    {
+        try
+        {
+            await Export.ExportUsersToExcel(users ?? Array.Empty<User>());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Export fejlede: {ex.Message}");
+        }
+    }
+}

@@ -1,0 +1,64 @@
+@page "/MyProfilePage/{userId:int}"
+@using Core
+@using EksamensProjekt.Service
+@inject ILogin LoginService
+@inject NavigationManager nav
+@inject IUser mService
+
+@if (user == null)
+{
+    <p>Indlæser profil ..</p>
+}
+else
+{
+    <div class="profile-container">
+        <div class="profile-header">
+            <img src="@user.ProfilePicture" class="profile-image" />
+            <div class="profile-info">
+                <h3>@user.Name’s Profil</h3>
+                <h4 class="role">@user.Role</h4>
+            </div>
+            
+            @if (currentUser?.Role == "Admin")
+            {
+                <td><button class="btn-primary" @onclick="() => DeleteById(user)">Fjern bruger</button></td>
+            }
+        </div>
+    </div>
+}
+
+
+@code {
+    // Modtager brugerens ID fra URL'en
+    [Parameter]
+    public int userId { get; set; }
+
+    // Den bruger, som vises på siden
+    private User user;
+
+    // Den aktuelle bruger, som er logget ind. Bruges til rollerettigheder 
+    private User? currentUser;
+
+    // Henter den loggede bruger og tjekker rettigheder.
+    // Henter derefter brugerdata baseret på userId fra URL.
+    protected override async Task OnInitializedAsync()
+    {
+        currentUser = await LoginService.GetUserLoggedIn();
+
+        if (currentUser == null ||
+            (currentUser.Role != "Admin" && currentUser.Role != "Køkkenchef" && currentUser.Role != "Kok"))
+        {
+            nav.NavigateTo("/");
+            return;
+        }
+
+        user = await mService.GetUserById(userId);
+    }
+
+    // Sletter brugeren fra databasen og sender tilbage til medarbejdersiden
+    private async Task DeleteById(User user)
+    {
+        await mService.DeleteById(user._id);
+        nav.NavigateTo("/EmployeePage");
+    }
+}

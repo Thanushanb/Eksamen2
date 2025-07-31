@@ -1,0 +1,73 @@
+@using Core
+@using EksamensProjekt.Service
+@inject NavigationManager nav
+@inject IUser mService
+
+<div class="profile-header">
+    <img src="@user.ProfilePicture" class="profile-image" />
+    <div class="profile-info">
+        <h3>@user.Name's Profil</h3>
+        <h4 class="role">@user.Role</h4>
+        <h4>Praktikperiode: @user.Internshipyear</h4>
+    </div>
+    <StatusBarComponent UserName="@user.Name" Goals="@GetUserGoals(user)" />
+    @if (CurrentUser.Role == "Admin" && user.IsActive == true)
+    { 
+        <button class="btn-primary" @onclick="() => MakeInactive(user)">Gør inaktiv</button>
+    }
+    else if (CurrentUser.Role == "Admin" && user.IsActive == false)
+    { 
+        <button class="btn-primary" @onclick="() => DeleteById(user)">Fjern bruger</button>   
+    }
+  
+</div>
+
+@code {
+    
+    // Brugeren der vises i headeren. Bliver sat i parent-komponenten
+    [Parameter] public User user { get; set; } = default!;
+    
+    // Den bruger der er logget ind. Bruges til rollebaseret adgang
+    [Parameter] public User CurrentUser { get; set; } = default!;
+
+    //Sletter brugeren fra databasen og sender tilbage til AllStudentsPage
+    private async Task DeleteById(User user)
+    {
+        await mService.DeleteById(user._id);
+        nav.NavigateTo("/AllStudentsPage");
+    }
+    
+    //Sætter brugerens isActive til false og opdaterer brugeren i databasen
+    private async Task MakeInactive(User user)
+    {
+        Console.WriteLine("_id: " + user._id); 
+
+        user.IsActive = false;
+
+        try
+        {
+            await mService.UpdateUser(user);
+            nav.NavigateTo("/AllStudentsPage");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Kunne ikke opdatere bruger: " + ex.Message);
+        }
+    }
+    
+    // Returnerer en samlet liste over alle mål fra alle praktikperioder
+    private Goal[] GetUserGoals(User user)
+    {
+        if (user.Studentplan?.Internship == null)
+            return Array.Empty<Goal>();
+
+        // Samler alle goals fra alle internships i én liste
+        var goals = user.Studentplan.Internship
+            .Where(i => i.Goal != null)
+            .SelectMany(i => i.Goal)
+            .ToArray();
+
+        return goals;
+    }
+
+}

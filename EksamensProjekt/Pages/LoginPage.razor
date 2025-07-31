@@ -1,0 +1,154 @@
+@page "/"
+@page "/LoginPage/"
+@using EksamensProjekt.Service
+@using Blazored.LocalStorage
+@using Core
+@inject NavigationManager navManager
+@inject ILogin LoginService
+@inject ILocalStorageService localStorage
+
+<link href="css/Login.css" rel="stylesheet" />
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <h2>Velkommen tilbage</h2>
+            <p>Indtast venligst dine informationer for at logge ind</p>
+        </div>
+
+        <div class="form-group">
+            <label>Brugernavn</label>
+            <div class="input-with-icon">
+                <i class="fas fa-user"></i>
+                <InputText class="form-control" @bind-Value="username" placeholder="Indtast dit brugernavn" />
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Adgangskode</label>
+            <div class="input-with-icon">
+                <i class="fas fa-lock"></i>
+                <InputText class="form-control" type="password" @bind-Value="password" placeholder="••••••••" />
+            </div>
+        </div>
+
+        <button class="login-button" @onclick="OnClickLogin" disabled="@isProcessing">
+            @if (isProcessing)
+            {
+                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                <span>Logging in...</span>
+            }
+            else
+            {
+                <span>Login <i class="fas fa-arrow-right"></i></span>
+            }
+        </button>
+
+        @if (showError)
+        {
+            <div class="error-message">
+                <i class="fas fa-exclamation-circle"></i> @errorText
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    
+    // Bruges til at holde login-brugerdata (bliver sat senere)
+    private User user;
+
+    // Brugernavn indtastet af brugeren
+    string username = "";
+
+    // Adgangskode indtastet af brugeren
+    string password = "";
+
+    // Fejlbeskedtekst, hvis login mislykkes
+    string errorText = "";
+
+    // Viser eller skjuler fejlbesked
+    bool showError = false;
+
+    // Viser loading spinner og deaktiverer knap under login
+    bool isProcessing = false;
+
+    // Tjekker om brugeren allerede er logget ind ved initialisering.
+    // Hvis ja, sendes brugeren videre til den rette side baseret på rolle.
+    protected override async Task OnInitializedAsync()
+    {
+        var isLoggedIn = await localStorage.GetItemAsync<bool>("isLoggedIn");
+        if (isLoggedIn)
+        {
+            var loggedInUser = await LoginService.GetUserLoggedIn();
+            if (loggedInUser != null)
+            {
+                RedirectBasedOnRole(loggedInUser);
+            }
+        }
+    }
+
+    // Håndterer login-knappens klik. Validerer input og forsøger login via LoginService.
+    // Viser fejl hvis login mislykkes. Hvis login lykkes, gemmes login-status og bruger omdirigeres.
+    private async Task OnClickLogin()
+    {
+        showError = false;
+        isProcessing = true;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+            {
+                errorText = "Indtast venligst brugernavn og adgangskode";
+                showError = true;
+                return;
+            }
+
+            var success = await LoginService.Login(username, password);
+
+            if (!success)
+            {
+                errorText = "Forkert brugernavn eller adgangskode";
+                showError = true;
+            }
+            else
+            {
+                var loggedInUser = await LoginService.GetUserLoggedIn();
+                if (loggedInUser != null)
+                {
+                    await localStorage.SetItemAsync("isLoggedIn", true);
+
+                    RedirectBasedOnRole(loggedInUser); 
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorText = "Login error: " + ex.Message;
+            showError = true;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    // Navigerer brugeren til den rigtige side afhængigt af brugerens rolle.
+    private void RedirectBasedOnRole(User user)
+    {
+        switch (user.Role)
+        {
+            case "Admin":
+            case "Køkkenchef":
+            case "Kok":
+                navManager.NavigateTo("/AllStudentsPage");
+                break;
+            case "Elev":
+                navManager.NavigateTo($"/StudentplanPage/{user._id}");
+                break;
+            default:
+                navManager.NavigateTo("/");
+                break;
+        }
+    }
+}

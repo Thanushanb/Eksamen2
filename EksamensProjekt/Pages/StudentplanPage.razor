@@ -1,0 +1,621 @@
+@page "/StudentplanPage/{userId:int}"
+@using Core
+@using EksamensProjekt.Service
+@using EksamensProjekt.Components
+@inject ILogin LoginService
+@inject NavigationManager nav
+@inject IUser mService
+@inject ISubgoal mServiceSubgoal
+@inject IComment mServiceComment
+
+<h3>Elevplan</h3>
+
+@if (users == null)
+{
+    <p>Bruger ikke fundet.</p>
+}
+else if (users.Studentplan == null)
+{
+    <p>Ingen elevplan for @users.Name.</p>
+}
+else
+{
+    <StudentplanHeaderComponent user="users" CurrentUser="currentUser"/>
+
+    <div class="internship-section">
+        <div class="internship-period-buttons">
+            <button class="@(selectedInternshipId == 1 ? "active" : "")" @onclick="() => SelectInternshipPeriod(1)">Praktikperiode 1</button>
+            <button class="@(selectedInternshipId == 2 ? "active" : "")" @onclick="() => SelectInternshipPeriod(2)">Praktikperiode 2</button>
+            <button class="@(selectedInternshipId == 3 ? "active" : "")" @onclick="() => SelectInternshipPeriod(3)">Praktikperiode 3</button>
+            <button class="@(selectedInternshipId == 4 ? "active" : "")" @onclick="() => SelectInternshipPeriod(4)">Praktikperiode 4</button>
+        </div>
+    </div>
+
+    <div class="Student-plan-container">
+        @foreach (var goal in currentGoals)
+        {
+            <button @onclick="() => ToggleTable(goal.GoalId)" class="goal-toggle-btn @(expandedGoalId == goal.GoalId ? "active" : "")">
+                @goal.Name
+            </button>
+            @if (expandedGoalId == goal.GoalId)
+            {
+                <div class="dropdown-table">
+                    <table class="table">
+                        <thead>
+                        <tr>
+                            <th>Opgave</th>
+                            <th>Dato</th>
+                            <th>Ansvarlig</th>
+                            <th>Bør Gennemføres i Perioden</th>
+                            <th>Gennemført Status</th>
+                            <th>Kommentar</th>
+                            @if (currentUser.Role == "Køkkenchef" || currentUser.Role == "Admin" || currentUser.Role == "Kok")
+                            {
+                                <th>Handling</th>
+                            }
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var subgoal in goal.Subgoals)
+                        {
+                            <tr>
+                                <td>@subgoal.Name</td>
+                                <td>@subgoal.Date.ToShortDateString()</td>
+                                <td>@subgoal.Responsible</td>
+                                <td>@subgoal.Deadline</td>
+                                <td>
+                                    @if (subgoal.Approval)
+                                    {
+                                        <span class="status-Gennemført">Gennemført</span>
+                                    }
+                                    else
+                                    {
+                                        <select value="@subgoal.Status"
+                                                @onchange="(e) => OnStatusChanged(e,userId,goal.GoalId, subgoal)"
+                                                class="form-control select-status @GetStatusClass(subgoal.Status)">
+                                            <option value="Mangler">Mangler</option>
+                                            <option value="Igang">Igang</option>
+                                            <option value="Gennemført">Gennemført</option>
+                                        </select>
+                                    }
+                                </td>
+                                <td>
+                                    <button class="notes-btn" @onclick="() => OpenCommentModal(subgoal)">
+                                        <span class="notes-icon">📝</span>
+                                        <span class="notes-count">@GetCommentCount(subgoal)</span>
+                                    </button>
+                                </td>
+                                @if (currentUser.Role == "Køkkenchef" || currentUser.Role == "Admin" || currentUser.Role == "Kok")
+                                {
+                                    <td>
+                                        @if (subgoal.Status == "Gennemført" && !subgoal.Approval)
+                                        {
+                                            <button class="btn btn-success btn-sm" @onclick="() => ApproveSubgoal(userId,goal.GoalId, subgoal)">
+                                                Godkend
+                                            </button>
+                                        }
+                                        else if (subgoal.Approval)
+                                        {
+                                            <span class="badge bg-success">Godkendt</span>
+                                        }
+
+                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteSubgoal(userId,goal.GoalId, subgoal.SubgoalID)">
+                                            Slet
+                                        </button>
+                                    </td>
+                                }
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                    @if (currentUser.Role == "Køkkenchef" || currentUser.Role == "Admin" || currentUser.Role == "Kok")
+                    {
+                        <button class="btn btn-primary" @onclick="() => FindGoalForNewSubgoal(goal.GoalId)">Tilføj</button>
+                    }
+                </div>
+            }
+
+            @if (showNewSubgoalForm && selectedGoalId == goal.GoalId && expandedGoalId == goal.GoalId)
+            {
+                <div class="new-subgoal-form">
+                    <h4>Tilføj ny delopgave</h4>
+                    <EditForm Model="@newSubgoal" OnValidSubmit="@CreateNewSubgoal" class="row p-3">
+                        <DataAnnotationsValidator/>
+                        <ValidationSummary/>
+
+                        <div class="form-group">
+                            <label for="subgoalName">Opgave:</label>
+                            <InputText id="subgoalName" @bind-Value="newSubgoal.Name" class="form-control"/>
+                            <ValidationMessage For="@(() => newSubgoal.Name)"/>
+                        </div>
+                        <div class="form-group">
+                            <label for="subgoalDate">Dato:</label>
+                            <InputDate id="subgoalDate" @bind-Value="newSubgoal.Date" class="form-control"/>
+                            <ValidationMessage For="@(() => newSubgoal.Date)"/>
+                        </div>
+                        <div class="form-group">
+                            <label for="subgoalResponsible">Ansvarlig:</label>
+                            <InputSelect id="subgoalResponsible" @bind-Value="newSubgoal.Responsible" class="form-control">
+                                <option value="">-- Vælg ansvarlig --</option>
+                                @foreach (var person in responsiblePeople)
+                                {
+                                    <option value="@person">@person</option>
+                                }
+                            </InputSelect>
+                            <ValidationMessage For="@(() => newSubgoal.Responsible)" />
+                        </div>
+                        <div class="form-group">
+                            <label for="subgoalDeadline">Deadline:</label>
+                            <InputText id="subgoalDeadline" @bind-Value="newSubgoal.Deadline" class="form-control"/>
+                            <ValidationMessage For="@(() => newSubgoal.Deadline)"/>
+                        </div>
+                        <div class="form-group mt-3">
+                            <button type="submit" class="btn btn-primary">Gem</button>
+                            <button type="button" class="btn btn-secondary ml-2" @onclick="CancelNewSubgoal">Annuller</button>
+                        </div>
+                    </EditForm>
+                    @if (newSubgoalError)
+                    {
+                        <div class="text-danger">Der opstod en fejl ved oprettelse af delopgaven</div>
+                    }
+                </div>
+            }
+        }
+    </div>
+}
+
+<CommentModal
+    IsVisible="showCommentModal"
+    Subgoal="selectedSubgoal"
+    Comments="currentComments"
+    CurrentUser="currentUser"
+    OnClose="CloseCommentModal"
+    OnSaveComment="SaveComment" />
+
+
+@code {
+    // Parameter modtager brugerens ID fra URL’en
+    [Parameter] public int userId { get; set; }
+
+    // Er den bruger hvis elevplan vises
+    private User? users;
+
+    // Den bruger der er logget ind, som bruges til adgangsrettigheder
+    private User? currentUser;
+
+    // Alle mål fra hele elevplanen (alle praktikperioder)
+    private Goal[]? goals;
+
+    // Aktuelle mål for den valgte praktikperiode
+    private Goal[]? currentGoals = new Goal[0];
+
+    // ID for den valgte praktikperiode (standard: 1)
+    private int selectedInternshipId = 1;
+
+    // Bruges til at vise fejlbesked ved oprettelse af ny delopgave
+    private bool newSubgoalError = false;
+
+    // Styrer om formularen til ny delopgave vises
+    private bool showNewSubgoalForm = false;
+
+    // Det valgte mål, som ny delopgave skal tilføjes til
+    private int? selectedGoalId;
+
+    // Den nye delopgave der oprettes
+    private Subgoal newSubgoal = new Subgoal();
+
+    // ID for hvilket mål der er foldet ud
+    private int? expandedGoalId;
+    
+    // Liste med valgmuligheder til "Ansvarlig"
+    private List<string> responsiblePeople = new()
+    {
+        "Elevansvarlig ",
+        "Elevansvarlig / Nærmeste leder",
+        "Elevkollega/ Elevmentor",
+        "Nærmeste leder/anden",
+        "HR",
+        "Uddannelsesansvarlig/HR",
+        "AV/Ejendom"
+    };
+
+    // Styrer om kommentarmodal er synlig
+    private bool showCommentModal = false;
+
+    // Den delopgave, der vises kommentarer for
+    private Subgoal? selectedSubgoal;
+
+    // Kommentarer til den valgte delopgave
+    private List<Comment> currentComments = new();
+
+    // Cache til at holde antal kommentarer pr. delopgave
+    private Dictionary<int, int> commentCounts = new Dictionary<int, int>();
+
+    // Flag for om comment-counts er ved at blive hentet
+    private bool isLoadingCommentCounts = false;
+
+    // Initialiserer siden ved at hente bruger, elevplan og kommentarantal
+    protected override async Task OnInitializedAsync()
+    {
+        currentUser = await LoginService.GetUserLoggedIn();
+
+        if (currentUser == null || (currentUser.Role == "Elev" && currentUser._id != userId))
+        {
+            nav.NavigateTo("/");
+            return;
+        }
+
+        users = await mService.GetUserById(userId);
+        goals = users?.Studentplan?.Internship?
+            .Where(i => i.Goal != null)
+            .SelectMany(i => i.Goal)
+            .ToArray();
+        
+        SelectInternshipPeriod(1);
+        await LoadCommentCountsForCurrentPeriod();
+    }
+
+    // Vælger praktikperiode og opdaterer aktuelle mål.
+    private async void SelectInternshipPeriod(int internshipId, bool resetUI = true)
+    {
+        selectedInternshipId = internshipId;
+
+        var selectedInternship = users?.Studentplan?.Internship?
+            .FirstOrDefault(i => i._id == internshipId);
+
+        currentGoals = selectedInternship?.Goal?.ToArray() ?? new Goal[0];
+
+        if (resetUI)
+        {
+            expandedGoalId = null;
+            showNewSubgoalForm = false;
+            selectedGoalId = null;
+        }
+
+        await LoadCommentCountsForCurrentPeriod();
+        StateHasChanged();
+    }
+
+    // Henter kommentarer for alle delopgaver i den valgte praktikperiode
+    private async Task LoadCommentCountsForCurrentPeriod()
+    {
+        if (currentGoals == null || currentGoals.Length == 0 || isLoadingCommentCounts)
+            return;
+
+        isLoadingCommentCounts = true;
+
+        try
+        {
+            var subgoalIdsInCurrentPeriod = currentGoals
+                .Where(g => g.Subgoals != null)
+                .SelectMany(g => g.Subgoals)
+                .Select(sg => sg.SubgoalID)
+                .ToList();
+
+            var keysToRemove = commentCounts.Keys.Except(subgoalIdsInCurrentPeriod).ToList();
+            foreach (var key in keysToRemove)
+            {
+                commentCounts.Remove(key);
+            }
+
+            var loadTasks = new List<Task>();
+            
+            foreach (var goal in currentGoals)
+            {
+                if (goal.Subgoals != null)
+                {
+                    foreach (var subgoal in goal.Subgoals)
+                    {
+                        loadTasks.Add(LoadCommentCountForSubgoal(goal.GoalId, subgoal.SubgoalID));
+                    }
+                }
+            }
+
+            await Task.WhenAll(loadTasks);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fejl ved loading af comment counts: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingCommentCounts = false;
+        }
+
+        StateHasChanged();
+    }
+
+    // Henter antal kommentarer for én specifik delopgave 
+    private async Task LoadCommentCountForSubgoal(int goalId, int subgoalId)
+    {
+        try
+        {
+            var comments = await mServiceComment.GetCommentsBySubgoalId(userId, selectedInternshipId, goalId, subgoalId);
+            commentCounts[subgoalId] = comments?.Count ?? 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading comment count for subgoal {subgoalId}: {ex.Message}");
+            commentCounts[subgoalId] = 0;
+        }
+    }
+
+    // Returnerer antal kommentarer for en given delopgave
+    private int GetCommentCount(Subgoal subgoal)
+    {
+        if (selectedSubgoal != null && selectedSubgoal.SubgoalID == subgoal.SubgoalID)
+        {
+            return currentComments.Count;
+        }
+        
+        return commentCounts.TryGetValue(subgoal.SubgoalID, out var count) ? count : 0;
+    }
+
+    // Åbner eller lukker visningen af et mål
+    private void ToggleTable(int goalId)
+    {
+        if (expandedGoalId == goalId)
+        {
+            expandedGoalId = null;
+            if (selectedGoalId == goalId && showNewSubgoalForm)
+            {
+                showNewSubgoalForm = false;
+                selectedGoalId = null;
+            }
+        }
+        else
+        {
+            expandedGoalId = goalId;
+        }
+    }
+    
+    // Åbner modal og henter kommentarer til delopgave
+    private async Task OpenCommentModal(Subgoal subgoal)
+    {
+        selectedSubgoal = subgoal;
+        showCommentModal = true;
+
+        var goal = currentGoals?.FirstOrDefault(g => g.Subgoals.Any(sg => sg.SubgoalID == subgoal.SubgoalID));
+        if (goal != null)
+        {
+            currentComments = await mServiceComment.GetCommentsBySubgoalId(userId, selectedInternshipId, goal.GoalId, subgoal.SubgoalID) ?? new List<Comment>();
+        
+            // Her sætter vi selectedGoalId til det tilhørende GoalId
+            selectedGoalId = goal.GoalId;
+        }
+        else
+        {
+            currentComments = new List<Comment>();
+            selectedGoalId = null;
+        }
+    }
+
+    // Lukker kommentarmodal og rydder valgte data
+    private void CloseCommentModal()
+    {
+        showCommentModal = false;
+        selectedSubgoal = null;
+        currentComments.Clear();
+    }
+
+    // Gemmer kommentar og opdaterer comment count
+    private async Task SaveComment(Comment comment)
+    {
+        if (selectedSubgoal == null || !selectedGoalId.HasValue)
+            return;
+
+        await mServiceComment.AddComment(userId, selectedInternshipId, selectedGoalId.Value, selectedSubgoal.SubgoalID, comment);
+        
+        currentComments = await mServiceComment.GetCommentsBySubgoalId(userId, selectedInternshipId, selectedGoalId.Value, selectedSubgoal.SubgoalID);
+        
+        commentCounts[selectedSubgoal.SubgoalID] = currentComments.Count;
+        
+        StateHasChanged();
+    }
+    
+    // Forbereder visning af ny delopgaveformular
+    private void FindGoalForNewSubgoal(int goalId)
+    {
+        selectedGoalId = goalId;
+        showNewSubgoalForm = true;
+        newSubgoal = new Subgoal
+        {
+            Date = DateTime.Today,
+            Status = "Mangler"
+        };
+    }
+
+    // Annullerer tilføjelse af ny delopgave
+    private void CancelNewSubgoal()
+    {
+        showNewSubgoalForm = false;
+        selectedGoalId = null;
+    }
+
+    // Opretter ny delopgave til valgt mål og opdaterer view
+    private async Task CreateNewSubgoal()
+    {
+        newSubgoalError = false;
+
+        if (string.IsNullOrEmpty(newSubgoal.Name))
+        {
+            newSubgoalError = true;
+            return;
+        }
+
+        try
+        {
+            if (selectedGoalId.HasValue)
+            {
+                bool success = await mServiceSubgoal.AddSubgoalToGoal(userId, selectedInternshipId, selectedGoalId.Value, newSubgoal);
+
+                if (success)
+                {
+                    users = await mService.GetUserById(userId);
+                    goals = users?.Studentplan?.Internship?
+                        .Where(i => i.Goal != null)
+                        .SelectMany(i => i.Goal)
+                        .ToArray();
+
+                    var previouslyExpandedGoalId = expandedGoalId;
+
+                    // Opdater currentGoals for den valgte praktikperiode
+                    var selectedInternship = users?.Studentplan?.Internship?
+                        .FirstOrDefault(i => i._id == selectedInternshipId);
+                    currentGoals = selectedInternship?.Goal?.ToArray() ?? new Goal[0];
+
+                    expandedGoalId = previouslyExpandedGoalId;
+                    
+                    showNewSubgoalForm = false;
+                    selectedGoalId = null;
+                    newSubgoal = new Subgoal();
+
+                    await LoadCommentCountsForCurrentPeriod();
+                    StateHasChanged();
+                }
+                else
+                {
+                    newSubgoalError = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fejl ved tilføjelse af delmål: {ex.Message}");
+            newSubgoalError = true;
+        }
+    }
+
+    // Sletter delopgave og opdaterer view + kommentarer
+    private async Task DeleteSubgoal(int userId, int goalId, int subgoalId)
+    {
+        bool success = await mServiceSubgoal.DeleteSubgoal(userId, selectedInternshipId, goalId, subgoalId);
+
+        if (success)
+        {
+            users = await mService.GetUserById(userId);
+            goals = users?.Studentplan?.Internship?
+                .Where(i => i.Goal != null)
+                .SelectMany(i => i.Goal)
+                .ToArray();
+                
+            var previouslyExpandedGoalId = expandedGoalId;
+
+            // Opdater currentGoals for den valgte praktikperiode
+            var selectedInternship = users?.Studentplan?.Internship?
+                .FirstOrDefault(i => i._id == selectedInternshipId);
+            currentGoals = selectedInternship?.Goal?.ToArray() ?? new Goal[0];
+
+            expandedGoalId = previouslyExpandedGoalId;
+            
+            // Fjern comment count for det slettede subgoal
+            commentCounts.Remove(subgoalId);
+            
+            // Reload comment counts efter sletning
+            await LoadCommentCountsForCurrentPeriod();
+            
+            StateHasChanged();
+        }
+        else
+        {
+            Console.WriteLine("Kunne ikke slette delmålet");
+        }
+    }
+    
+    // Returnerer CSS-klasse baseret på status
+    private string GetStatusClass(string status) => status switch
+    {
+        "Mangler" => "status-Mangler",
+        "Igang" => "status-Igang",
+        "Gennemført" => "status-Gennemført",
+        _ => ""
+    };
+
+    // Godkender en delopgave og opdaterer visning
+    private async Task ApproveSubgoal(int userId, int goalId, Subgoal subgoal)
+    {
+        subgoal.Approval = true;
+
+        bool success = await mServiceSubgoal.UpdateSubgoal(userId, selectedInternshipId, goalId, subgoal.SubgoalID, subgoal);
+
+        if (success)
+        {
+            users = await mService.GetUserById(userId);
+            goals = users?.Studentplan?.Internship?
+                .Where(i => i.Goal != null)
+                .SelectMany(i => i.Goal)
+                .ToArray();
+                
+            // Opdater currentGoals efter godkendelse
+            var selectedInternship = users?.Studentplan?.Internship?
+                .FirstOrDefault(i => i._id == selectedInternshipId);
+            currentGoals = selectedInternship?.Goal?.ToArray() ?? new Goal[0];
+            
+            StateHasChanged();
+        }
+        else
+        {
+            Console.WriteLine("Kunne ikke godkende delmålet");
+        }
+    }
+
+    // Ændrer status på en delopgave og gemmer i databasen
+    private async Task OnStatusChanged(ChangeEventArgs e, int userId, int goalId, Subgoal subgoal)
+    {
+        var newStatus = e.Value?.ToString();
+    
+        if (newStatus == subgoal.Status) 
+            return;
+
+        // Gem den gamle status i tilfælde af fejl
+        var oldStatus = subgoal.Status;
+        subgoal.Status = newStatus;
+    
+        // Hvis status er ændret til "Gennemført", sæt Approval til false
+        if (newStatus == "Gennemført")
+        {
+            subgoal.Approval = false;
+        }
+
+        try
+        {
+            // Opdater subgoalen i databasen
+            bool success = await mServiceSubgoal.UpdateSubgoal(userId, selectedInternshipId, goalId, subgoal.SubgoalID, subgoal);
+        
+            if (!success)
+            {
+                // Hvis opdatering fejlede, gendan den gamle status
+                subgoal.Status = oldStatus;
+                Console.WriteLine("Kunne ikke opdatere status i databasen");
+                // Vis evt. en fejlmeddelelse til brugeren
+            }
+            else
+            {
+                // Opdater den lokale kopi af brugerdata
+                users = await mService.GetUserById(userId);
+                goals = users?.Studentplan?.Internship?
+                    .Where(i => i.Goal != null)
+                    .SelectMany(i => i.Goal)
+                    .ToArray();
+                    
+                // Opdater currentGoals efter status ændring
+                var previouslyExpandedGoalId = expandedGoalId;
+
+                var selectedInternship = users?.Studentplan?.Internship?
+                    .FirstOrDefault(i => i._id == selectedInternshipId);
+                currentGoals = selectedInternship?.Goal?.ToArray() ?? new Goal[0];
+
+                expandedGoalId = previouslyExpandedGoalId;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Gendan den gamle status ved fejl
+            subgoal.Status = oldStatus;
+            Console.WriteLine($"Fejl ved opdatering af status: {ex.Message}");
+            // Vis evt. en fejlmeddelelse til brugeren
+        }
+    
+        StateHasChanged();
+    }
+}
